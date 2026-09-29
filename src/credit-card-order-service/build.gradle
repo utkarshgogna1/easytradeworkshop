@@ -33,6 +33,11 @@ dependencies {
 
     implementation 'com.microsoft.sqlserver:mssql-jdbc:12.10.2.jre11'
 
+    // Connection pooling: bounds and reuses DB connections instead of opening a fresh
+    // DriverManager connection per operation. Prevents connection-establishment churn and
+    // pool exhaustion under high load. See docs/scaling-100x-findings.md.
+    implementation 'com.zaxxer:HikariCP:5.1.0'
+
     //lombok
     compileOnly 'org.projectlombok:lombok:1.18.42'
     annotationProcessor 'org.projectlombok:lombok:1.18.42'

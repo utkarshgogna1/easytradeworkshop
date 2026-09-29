@@ -1,6 +1,10 @@
 package com.dynatrace.easytrade.creditcardorderservice;
 
 import com.dynatrace.easytrade.creditcardorderservice.models.*;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+
+import javax.sql.DataSource;
 import java.sql.*;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -199,8 +203,76 @@ public class DatabaseHelper {
         }
     }
 
+    /**
+     * Lazily-initialized, shared connection pool.
+     *
+     * <p>Previously every DB operation opened a brand-new {@code DriverManager.getConnection()}
+     * and closed it — under load this causes connection-establishment churn and (against a
+     * shared database instance) connection-pool exhaustion that cascades across services.
+     * A bounded HikariCP pool reuses a small set of connections instead, which is the primary
+     * code-level mitigation for the shared-DB bottleneck identified in the 100x scaling review.
+     *
+     * <p>The connection string is unchanged ({@code MSSQL_CONNECTIONSTRING}). Pool size and
+     * timeouts are tunable via environment variables so they can be scaled without a code change.
+     */
+    private static volatile DataSource dataSource;
+
+    private static DataSource getDataSource() {
+        DataSource local = dataSource;
+        if (local == null) {
+            synchronized (DatabaseHelper.class) {
+                local = dataSource;
+                if (local == null) {
+                    HikariConfig config = new HikariConfig();
+                    config.setJdbcUrl(System.getenv("MSSQL_CONNECTIONSTRING"));
+                    config.setPoolName("credit-card-order-pool");
+                    config.setMaximumPoolSize(envInt("DB_POOL_MAX_SIZE", 10));
+                    config.setMinimumIdle(envInt("DB_POOL_MIN_IDLE", 2));
+                    config.setConnectionTimeout(envLong("DB_POOL_CONNECTION_TIMEOUT_MS", 30_000L));
+                    config.setIdleTimeout(envLong("DB_POOL_IDLE_TIMEOUT_MS", 600_000L));
+                    config.setMaxLifetime(envLong("DB_POOL_MAX_LIFETIME_MS", 1_800_000L));
+                    local = new HikariDataSource(config);
+                    dataSource = local;
+                    logger.info("Initialized DB connection pool [maxPoolSize={}]", config.getMaximumPoolSize());
+                }
+            }
+        }
+        return local;
+    }
+
+    private static int envInt(String name, int defaultValue) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid integer for {}='{}', using default {}", name, value, defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private static long envLong(String name, long defaultValue) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid long for {}='{}', using default {}", name, value, defaultValue);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Returns a pooled connection. Callers must {@code close()} it (all callers already use
+     * try-with-resources); closing returns the connection to the pool rather than tearing
+     * down a physical connection.
+     */
     public Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(System.getenv("MSSQL_CONNECTIONSTRING"));
+        return getDataSource().getConnection();
     }
 
     public Optional<CreditCardOrderStatus> getLastOrderStatusForAccountId(Connection conn, Integer accountId)
