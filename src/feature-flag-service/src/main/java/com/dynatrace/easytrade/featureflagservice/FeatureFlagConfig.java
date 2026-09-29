@@ -26,6 +26,8 @@ public class FeatureFlagConfig {
         private String enableHighCpuUsage;
         @Value("${app.flags.enableCreditCardValidation}")
         private String enableCreditCardValidation;
+        @Value("${app.flags.enableBitcoinPayment}")
+        private String enableBitcoinPayment;
 
         @Bean
         public Map<String, Flag> flagRegistry() {
@@ -35,7 +37,13 @@ public class FeatureFlagConfig {
                                                 Boolean.parseBoolean(enableFrontendModify),
                                                 "Frontend feature flag management",
                                                 "When enabled allows controlling problem pattern feature flags from the main app UI.",
-                                                false, "config"));
+                                                false, "config"),
+                                "bitcoin_payment",
+                                new Flag("bitcoin_payment",
+                                                Boolean.parseBoolean(enableBitcoinPayment),
+                                                "Bitcoin payment",
+                                                "When enabled, the credit-card-order-service exposes the bitcoin payment endpoints (POST /v1/payments/bitcoin and GET /v1/payments/{paymentId}). Disabled by default while the feature is rolled out.",
+                                                isModifiable, "config"));
                 var problemPatterns = Map.of("db_not_responding",
                                 new Flag("db_not_responding", Boolean.parseBoolean(enableDbNotResponding),
                                                 "DB not responding",
